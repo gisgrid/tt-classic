@@ -3,3 +3,6 @@ logs/
 __pycache__/
 *.pyc
 data/progress.json
+build/
+dist/
+*.spec

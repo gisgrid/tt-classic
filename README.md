@@ -26,7 +26,8 @@ python app.py
 
 ## Saved progress
 
-Progress is stored locally in `data/progress.json`.
+Progress is stored separately for each Windows user in
+`%LOCALAPPDATA%\TTClassic\progress.json`.
 
 After completing a Letter or Word lesson, type a name and press `Enter` to save
 the result. Select `4` from the main menu to view the latest 10 records per mode.
