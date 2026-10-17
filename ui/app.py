@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 from rich.text import Text
@@ -13,6 +15,19 @@ from engine.lessons import LessonFactory
 from engine.scoring import calculate_score, score_message
 from engine.session import LessonResult, TypingSession
 from storage.progress import Progress, ProgressStore
+from ui.speech import SpeechService
+
+
+def _application_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent
+
+
+def _progress_path(root: Path) -> Path:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    data_root = Path(local_app_data) if local_app_data else root / "data"
+    return data_root / "TTClassic" / "progress.json"
 
 
 class TTClassicApp(App[None]):
@@ -61,6 +76,7 @@ class TTClassicApp(App[None]):
         ("4", "choose_four", "History"),
         ("ctrl+r", "restart_lesson", "Restart"),
         ("ctrl+n", "next_lesson", "Next"),
+        ("ctrl+s", "toggle_speech", "Speech"),
         ("escape", "show_menu", "Menu"),
         ("plus", "increase_length", "Longer"),
         ("minus", "decrease_length", "Shorter"),
@@ -69,9 +85,11 @@ class TTClassicApp(App[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        root = Path(__file__).resolve().parent.parent
-        self.lesson_factory = LessonFactory(root / "content" / "words" / "common_words.txt")
-        self.progress_store = ProgressStore(root / "data" / "progress.json")
+        root = _application_root()
+        self.lesson_factory = LessonFactory(
+            root / "content" / "words" / "guangdong_zhongkao_advanced.txt"
+        )
+        self.progress_store = ProgressStore(_progress_path(root))
         self.progress = self.progress_store.load()
         self.mode = "menu"
         self.length = 24
@@ -82,6 +100,8 @@ class TTClassicApp(App[None]):
         self.feedback_message = "Ready."
         self.name_entry = ""
         self.history_view: str | None = None
+        self.speech_enabled = True
+        self.speech = SpeechService()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -96,6 +116,9 @@ class TTClassicApp(App[None]):
         self.title = "TT Classic"
         self.sub_title = "Milestone 1"
         self._refresh_all()
+
+    def on_unmount(self) -> None:
+        self.speech.close()
 
     def action_choose_one(self) -> None:
         if self.mode == "menu":
@@ -191,6 +214,12 @@ class TTClassicApp(App[None]):
         self.history_view = None
         self._refresh_all()
 
+    def action_toggle_speech(self) -> None:
+        self.speech_enabled = not self.speech_enabled
+        state = "on" if self.speech_enabled else "off"
+        self.feedback_message = f"Word pronunciation {state}."
+        self._refresh_all()
+
     def action_increase_length(self) -> None:
         return
 
@@ -239,6 +268,11 @@ class TTClassicApp(App[None]):
 
         if handled or key == "backspace" or len(key) == 1:
             self._refresh_all()
+
+        if handled and self.mode == "words" and (key == " " or self.session.is_complete):
+            completed_word = self.session.typed.rstrip().rsplit(" ", 1)[-1]
+            if self.speech_enabled:
+                self.speech.say(completed_word)
 
         if not before and self.session.is_complete:
             self.last_result = self.session.build_result()
@@ -355,12 +389,13 @@ class TTClassicApp(App[None]):
         return text
 
     def _render_status(self) -> Text:
+        speech_status = f"Word pronunciation: {'on' if self.speech_enabled else 'off'} (Ctrl+S)"
         if self.mode == "menu":
-            return Text("Pick a mode with 1, 2, 3, or view records with 4.")
+            return Text(f"Pick a mode with 1, 2, 3, or view records with 4. | {speech_status}")
         if self.mode in {"letter_difficulty", "word_difficulty"}:
-            return Text("Press 1 for Easy, 2 for Medium, or Esc to return.")
+            return Text(f"Press 1 for Easy, 2 for Medium, or Esc to return. | {speech_status}")
         if self.mode == "history":
-            return Text("Choose a leaderboard with 1-4. Press Esc to return.")
+            return Text(f"Choose a leaderboard with 1-4. Press Esc to return. | {speech_status}")
 
         assert self.session is not None
         if self.session.is_complete:
@@ -375,6 +410,7 @@ class TTClassicApp(App[None]):
         status.append(
             f" | typed {self.session.current_index}/{len(self.session.target_text)} | errors {self.session.errors}"
         )
+        status.append(f" | {speech_status}")
         status.append(f" | {self.feedback_message}")
         if self.last_result is not None:
             status.append(" | lesson saved", style="bold #00ff66")

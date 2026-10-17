@@ -4,4 +4,6 @@ __pycache__/
 *.pyc
 data/progress.json
 log/
-
+build/
+dist/
+*.spec
